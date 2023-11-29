@@ -1,5 +1,8 @@
 # Faucet FCT Token Dapp
 
+## Link to the dapp
+https://dacade-faucet-101.vercel.app/
+
 ## Feature
 
 You can claim 50 FCT token each day for each address
