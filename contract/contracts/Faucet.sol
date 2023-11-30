@@ -11,7 +11,7 @@ interface IERC20 {
 }
 
 contract Faucet {
-    address payable owner;
+    address payable public owner;
     IERC20 public token;
 
     uint256 public withdrawalAmount = 50 * (10**18);
@@ -20,30 +20,33 @@ contract Faucet {
     event Withdrawal(address indexed to, uint256 indexed amount);
     event Deposit(address indexed from, uint256 indexed amount);
 
-    mapping(address => uint256) nextAccessTime;
+    mapping(address => uint256) lastAccessTime;
 
-    constructor(address tokenAddress) payable {
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only the contract owner can call this function");
+        _;
+    }
+
+    constructor(address tokenAddress) {
         token = IERC20(tokenAddress);
         owner = payable(msg.sender);
     }
 
     function requestTokens() public {
-        require(
-            msg.sender != address(0),
-            "Invalid request address"
-        );
-        require(
-            token.balanceOf(address(this)) >= withdrawalAmount,
-            "Insufficient balance in faucet"
-        );
-        require(
-            block.timestamp >= nextAccessTime[msg.sender],
-            "Insufficient time elapsed since the last withdrawal"
-        );
+        require(msg.sender != address(0), "Invalid request address");
+        require(token.balanceOf(address(this)) >= withdrawalAmount, "Insufficient balance in faucet");
+        require(block.timestamp >= lastAccessTime[msg.sender] + lockTime, "Withdrawal not allowed yet");
 
-        nextAccessTime[msg.sender] = block.timestamp + lockTime;
+        // Prevent reentrancy attacks
+        uint256 currentBalance = token.balanceOf(address(this));
+        require(currentBalance >= withdrawalAmount, "Insufficient balance in faucet");
 
-        token.transfer(msg.sender, withdrawalAmount);
+        lastAccessTime[msg.sender] = block.timestamp;
+
+        // Transfer after state changes to prevent reentrancy
+        require(token.transfer(msg.sender, withdrawalAmount), "Token transfer failed");
+
+        emit Withdrawal(msg.sender, withdrawalAmount);
     }
 
     receive() external payable {
@@ -58,20 +61,18 @@ contract Faucet {
         withdrawalAmount = amount * (10**18);
     }
 
-    function setLockTime(uint256 amount) public onlyOwner {
-        lockTime = amount * 1 days;
+    function setLockTime(uint256 amountInDays) public onlyOwner {
+        // Validate lock time duration
+        require(amountInDays > 0, "Lock time must be greater than 0");
+        lockTime = amountInDays * 1 days;
     }
 
     function withdraw() external onlyOwner {
-        emit Withdrawal(msg.sender, token.balanceOf(address(this)));
-        token.transfer(msg.sender, token.balanceOf(address(this)));
-    }
+        uint256 currentBalance = token.balanceOf(address(this));
+        require(currentBalance > 0, "No balance to withdraw");
 
-    modifier onlyOwner() {
-        require(
-            msg.sender == owner,
-            "Only the contract owner can call this function"
-        );
-        _;
+        require(token.transfer(owner, currentBalance), "Token transfer failed");
+
+        emit Withdrawal(owner, currentBalance);
     }
 }
